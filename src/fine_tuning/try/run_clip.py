@@ -196,7 +196,7 @@ class Transform(torch.nn.Module):
     def __init__(self, image_size, mean, std):
         super().__init__()
         self.transforms = torch.nn.Sequential(
-            Resize([image_size], interpolation=InterpolationMode.BICUBIC),
+            Resize([image_size], interpolation=InterpolationMode.BICUBIC, antialias=True),
             CenterCrop(image_size),
             ConvertImageDtype(torch.float),
             Normalize(mean, std),
