@@ -91,9 +91,9 @@ Finally, we can run the example script to train the model (Change the first thre
 python3 run_clip.py   --output_dir /home/xz306/Data-Climate-and-AI/src/fine_tuning/try/clip-roberta-finetuned   --model_name_or_path /home/xz306/Data-Climate-and-AI/src/fine_tuning/try/clip-roberta   --data_dir /home/xz306/transformers/data   --dataset_name ydshieh/coco_dataset_script   --dataset_config_name=2017   --image_column image_path   --caption_column caption   --remove_unused_columns=False   --do_train   --do_eval   --per_device_train_batch_size="8" --per_device_eval_batch_size="8" --learning_rate="5e-5"   --warmup_steps="0"   --weight_decay 0.1  --max_steps 1000  --overwrite_output_dir --logging_steps 1
 ```
 
-### More arguments 
+## More arguments 
 
-## Model arguments
+### Model arguments
 model_name_or_path: The name of the pretrained model or the path where the model is stored. This could be a model identifier from Hugging Face's model hub. Examples: "openai/clip-vit-base-patch32", "./my_pretrained_clip_model"
 
 config_name: The name of the pretrained configuration or its path if it's not the same as model_name_or_path. This is optional, if not provided, model_name_or_path will be used.
@@ -115,7 +115,7 @@ freeze_vision_model: This is a boolean flag determining whether to freeze the vi
 freeze_text_model: This is a boolean flag determining whether to freeze the text model parameters or not during training. If set to True, the text model parameters will not be updated during training. The default is False
 
 
-## Data arguments
+### Data arguments
 dataset_name: Name of the dataset to use. It refers to datasets in the Hugging Face's datasets library. Example inputs: "coco", "imagenet".
 
 dataset_config_name: Configuration of the dataset to use if the dataset has different versions or configurations. Example inputs: "2017" for the COCO dataset.
@@ -143,3 +143,6 @@ overwrite_cache: Overwrite the cached training and evaluation sets. As this is a
 preprocessing_num_workers: The number of processes to use for the preprocessing. Example inputs: 4, 8.
 
 Note that the __post_init__ function is validating that either a dataset_name is provided or train_file and validation_file are provided. It also checks that these files, if provided, are of type "csv" or "json".
+
+### Training arguments. 
+Move to: https://huggingface.co/docs/transformers/v4.30.0/en/main_classes/trainer#transformers.TrainingArguments
