@@ -35,6 +35,7 @@ from PIL import Image
 from torchvision.io import ImageReadMode, read_image
 from torchvision.transforms import CenterCrop, ConvertImageDtype, Normalize, Resize
 from torchvision.transforms.functional import InterpolationMode
+from torchvision.transforms import ToTensor
 
 import transformers
 from transformers import (
@@ -49,6 +50,10 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
+
+from sklearn.metrics import accuracy_score
+import numpy as np
+from transformers import EvalPrediction
 
 
 logger = logging.getLogger(__name__)
@@ -407,9 +412,14 @@ def main():
         examples["attention_mask"] = text_inputs.attention_mask
         return examples
 
+    # def transform_images(examples):
+        # images = [read_image(image_file, mode=ImageReadMode.RGB) for image_file in examples[image_column]]
+        # examples["pixel_values"] = [image_transformations(image) for image in images]
+        # return examples
+    
     def transform_images(examples):
-        images = [read_image(image_file, mode=ImageReadMode.RGB) for image_file in examples[image_column]]
-        examples["pixel_values"] = [image_transformations(image) for image in images]
+        images = [Image.open(image_file) for image_file in examples[image_column]]
+        examples["pixel_values"] = [image_transformations(ToTensor()(image)) for image in images]
         return examples
 
     def filter_corrupt_images(examples):
@@ -422,6 +432,13 @@ def main():
             except Exception:
                 valid_images.append(False)
         return valid_images
+     
+    def compute_metrics(eval_prediction: EvalPrediction):
+        logits = eval_prediction.predictions[0]
+        true_labels = eval_prediction.label_ids
+        predictions = np.argmax(logits, axis=-1)
+        acc = np.mean(predictions == true_labels)
+        return {"accuracy": acc}
 
     if training_args.do_train:
         if "train" not in dataset:
@@ -431,9 +448,9 @@ def main():
             max_train_samples = min(len(train_dataset), data_args.max_train_samples)
             train_dataset = train_dataset.select(range(max_train_samples))
 
-        train_dataset = train_dataset.filter(
-            filter_corrupt_images, batched=True, num_proc=data_args.preprocessing_num_workers
-        )
+        # train_dataset = train_dataset.filter(
+        #     filter_corrupt_images, batched=True, num_proc=data_args.preprocessing_num_workers
+        # )
         train_dataset = train_dataset.map(
             function=tokenize_captions,
             batched=True,
@@ -477,9 +494,9 @@ def main():
             max_eval_samples = min(len(test_dataset), data_args.max_eval_samples)
             test_dataset = test_dataset.select(range(max_eval_samples))
 
-        test_dataset = test_dataset.filter(
-            filter_corrupt_images, batched=True, num_proc=data_args.preprocessing_num_workers
-        )
+        # test_dataset = test_dataset.filter(
+        #    filter_corrupt_images, batched=True, num_proc=data_args.preprocessing_num_workers
+        # )
         test_dataset = test_dataset.map(
             function=tokenize_captions,
             batched=True,
@@ -498,6 +515,7 @@ def main():
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
+        # compute_metrics=compute_metrics,
         data_collator=collate_fn,
     )
 
@@ -521,6 +539,16 @@ def main():
         metrics = trainer.evaluate()
         trainer.log_metrics("eval", metrics)
         trainer.save_metrics("eval", metrics)
+    # 10.2 testing
+    # Testing
+    if training_args.do_predict:
+        # Load the test dataset
+        # Run prediction
+        predictions = trainer.predict(test_dataset)
+        # Log metrics
+        trainer.log_metrics("test", predictions.metrics)
+        # Save metrics
+        trainer.save_metrics("test", predictions.metrics)
 
     # 11. Write Training Stats and push to hub.
     kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "contrastive-image-text-modeling"}
