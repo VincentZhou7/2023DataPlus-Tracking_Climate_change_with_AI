@@ -22,7 +22,8 @@ and text models:
 Vision models: ViT(https://huggingface.co/models?filter=vit), CLIP (https://huggingface.co/models?filter=clip)
 Text models: BERT, ROBERTa (https://huggingface.co/models?filter=fill-mask)
 """
-
+from peft import LoraConfig, TaskType
+from peft import get_peft_model
 import logging
 import os
 import sys
@@ -47,6 +48,7 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
+
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
@@ -54,6 +56,15 @@ from transformers.utils.versions import require_version
 from sklearn.metrics import accuracy_score
 import numpy as np
 from transformers import EvalPrediction
+
+from transformers import CLIPProcessor, CLIPModel
+import transformers
+from transformers import (
+    VisionTextDualEncoderModel,
+    VisionTextDualEncoderProcessor,
+    AutoTokenizer,
+    AutoImageProcessor
+)
 
 
 logger = logging.getLogger(__name__)
@@ -70,8 +81,8 @@ class ModelArguments:
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune, or train from scratch.
     """
 
-    model_name_or_path: str = field(
-        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"},
+    model_name_or_path: Optional[str] = field(
+        default=None, metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"},
     )
     config_name: Optional[str] = field(
         default=None, metadata={"help": "Pretrained config name or path if not the same as model_name"}
@@ -215,6 +226,7 @@ class Transform(torch.nn.Module):
 
 
 def collate_fn(examples):
+    #raise ValueError("Need either a dataset name or a training/validation file.")
     pixel_values = torch.stack([example["pixel_values"] for example in examples])
     input_ids = torch.tensor([example["input_ids"] for example in examples], dtype=torch.long)
     attention_mask = torch.tensor([example["attention_mask"] for example in examples], dtype=torch.long)
@@ -322,35 +334,23 @@ def main():
     # https://huggingface.co/docs/datasets/loading_datasets.html.
 
     # 5. Load pretrained model, tokenizer, and image processor
-    if model_args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_args.tokenizer_name, cache_dir=model_args.cache_dir, use_fast=model_args.use_fast_tokenizer
-        )
-    elif model_args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_args.model_name_or_path, cache_dir=model_args.cache_dir, use_fast=model_args.use_fast_tokenizer
-        )
-    else:
-        raise ValueError(
-            "You are instantiating a new tokenizer from scratch. This is not supported by this script."
-            "You can do it from another script, save it, and load it from here, using --tokenizer_name."
-        )
-
+  
+    tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
     # Load image_processor, in this script we only use this to get the mean and std for normalization.
-    image_processor = AutoImageProcessor.from_pretrained(
-        model_args.image_processor_name or model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-    )
+    image_processor = AutoImageProcessor.from_pretrained("openai/clip-vit-base-patch32")
 
-    model = AutoModel.from_pretrained(
-        model_args.model_name_or_path,
-        cache_dir=model_args.cache_dir,
-        revision=model_args.model_revision,
-        use_auth_token=True if model_args.use_auth_token else None,
-    )
+    # If use LoRA to finetune, Uncomment the next ten lines.
+    #model = AutoModel.from_pretrained("openai/clip-vit-base-patch32")
+    # peft_config = LoraConfig(
+    #     r=16,
+    #     lora_alpha=16,
+    #     target_modules=["k_proj"],
+    #     lora_dropout=0.1,
+    #     bias="none",
+    # )
+    model = AutoModel.from_pretrained("openai/clip-vit-base-patch32")
     config = model.config
+    #model = get_peft_model(model, peft_config)
 
     def _freeze_params(module):
         for param in module.parameters():
@@ -378,36 +378,24 @@ def main():
         return
 
     # 6. Get the column names for input/target.
-    dataset_columns = dataset_name_mapping.get(data_args.dataset_name, None)
-    if data_args.image_column is None:
-        image_column = dataset_columns[0] if dataset_columns is not None else column_names[0]
-    else:
-        image_column = data_args.image_column
-        if image_column not in column_names:
-            raise ValueError(
-                f"--image_column' value '{data_args.image_column}' needs to be one of: {', '.join(column_names)}"
-            )
-    if data_args.caption_column is None:
-        caption_column = dataset_columns[1] if dataset_columns is not None else column_names[1]
-    else:
-        caption_column = data_args.caption_column
-        if caption_column not in column_names:
-            raise ValueError(
-                f"--caption_column' value '{data_args.caption_column}' needs to be one of: {', '.join(column_names)}"
-            )
+  
+    image_column = data_args.image_column
+    caption_column = data_args.caption_column
 
     # 7. Preprocessing the datasets.
     # Initialize torchvision transforms and jit it for faster processing.
     image_transformations = Transform(
         config.vision_config.image_size, image_processor.image_mean, image_processor.image_std
     )
+
+    #image_transformations = image_processor
     image_transformations = torch.jit.script(image_transformations)
 
     # Preprocessing the datasets.
     # We need to tokenize input captions and transform the images.
     def tokenize_captions(examples):
         captions = list(examples[caption_column])
-        text_inputs = tokenizer(captions, max_length=data_args.max_seq_length, padding="max_length", truncation=True)
+        text_inputs = tokenizer(captions, max_length=77, padding="max_length", truncation=True)
         examples["input_ids"] = text_inputs.input_ids
         examples["attention_mask"] = text_inputs.attention_mask
         return examples
@@ -421,6 +409,9 @@ def main():
         images = [Image.open(image_file) for image_file in examples[image_column]]
         examples["pixel_values"] = [image_transformations(ToTensor()(image)) for image in images]
         return examples
+        # images = [Image.open(image_file) for image_file in examples[image_column]]
+        # examples["pixel_values"] = [image_processor(images=ToTensor()(image),  return_tensors="pt", padding=True).pixel_values for image in images]
+        # return examples
 
     def filter_corrupt_images(examples):
         """remove problematic images"""
@@ -432,13 +423,6 @@ def main():
             except Exception:
                 valid_images.append(False)
         return valid_images
-     
-    def compute_metrics(eval_prediction: EvalPrediction):
-        logits = eval_prediction.predictions[0]
-        true_labels = eval_prediction.label_ids
-        predictions = np.argmax(logits, axis=-1)
-        acc = np.mean(predictions == true_labels)
-        return {"accuracy": acc}
 
     if training_args.do_train:
         if "train" not in dataset:
