@@ -1,4 +1,4 @@
-# Data-Climate-and-AI
+# 2023 Data+/Climate+: Tracking Climate Change With AI
 
 # Introduction: Motivation and Research Goal
 
