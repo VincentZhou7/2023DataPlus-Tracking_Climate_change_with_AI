@@ -14,85 +14,57 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# VisionTextDualEncoder and CLIP model training examples
+# Code to finetune CLIP model on our own dataset
 
-The following example showcases how to train a CLIP-like vision-text dual encoder model
-using a pre-trained vision and text encoder.
+The following example showcases how to train a CLIP model using a pre-trained vision and text encoder based on your own dataset.
 
 Such a model can be used for natural language image search and potentially zero-shot image classification.
 The model is inspired by [CLIP](https://openai.com/blog/clip/), introduced by Alec Radford et al.
 The idea is to train a vision encoder and a text encoder jointly to project the representation of images and their
 captions into the same embedding space, such that the caption embeddings are located near the embeddings
-of the images they describe.
+of the images they describe. In this way, the model can help map text descriptions of images to images.
 
-### Download COCO dataset (2017)
-This example uses COCO dataset (2017) through a custom dataset script, which requires users to manually download the
-COCO dataset before training.
+### Prepare your dataset
+We recommend that the dataset should be in the form of .csv file. In the csv file, there should be two columns. The first column, with column name "image_path", stores the paths to your image data. The second column, with the column name "caption", stores the label of each image
 
-```bash
-mkdir data
-cd data
-wget http://images.cocodataset.org/zips/train2017.zip
-wget http://images.cocodataset.org/zips/val2017.zip
-wget http://images.cocodataset.org/zips/test2017.zip
-wget http://images.cocodataset.org/annotations/annotations_trainval2017.zip
-wget http://images.cocodataset.org/annotations/image_info_test2017.zip
-cd ..
-```
-
-Having downloaded COCO dataset manually you should be able to load with the `ydshieh/coc_dataset_script` dataset loading script:
-
-```py
-import os
-import datasets
-
-COCO_DIR = os.path.join(os.getcwd(), "data")
-ds = datasets.load_dataset("ydshieh/coco_dataset_script", "2017", data_dir=COCO_DIR)
-```
-
-### Create a model from a vision encoder model and a text encoder model
-Next, we create a [VisionTextDualEncoderModel](https://huggingface.co/docs/transformers/model_doc/vision-text-dual-encoder#visiontextdualencoder).
-The `VisionTextDualEncoderModel` class lets you load any vision and text encoder model to create a dual encoder.
-Here is an example of how to load the model using pre-trained vision and text models.
-
+### Create a model from a vision encoder model and a text encoder model，tokenizer，and image processor
+Next, we creat a model, which is CLIP. It is a pretrained model and Huggingface has provided flexible and easy access to different structures of it. In this script, we use the model from this link: [clip-vit-base-patch32 ](https://huggingface.co/openai/clip-vit-base-patch32) 
+Tokenizer is going to process the text to the form that model can use. Image processor is used to preprocess the images to the form the model can use. The link also provides the image processor and tokenizer suitable to the model. Huggingface also provides methods to directly import them.
 ```python3
-from transformers import (
-    VisionTextDualEncoderModel,
-    VisionTextDualEncoderProcessor,
-    AutoTokenizer,
-    AutoImageProcessor
-)
-
-model = VisionTextDualEncoderModel.from_vision_text_pretrained(
-    "openai/clip-vit-base-patch32", "roberta-base"
-)
-
-tokenizer = AutoTokenizer.from_pretrained("roberta-base")
+tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
 image_processor = AutoImageProcessor.from_pretrained("openai/clip-vit-base-patch32")
-processor = VisionTextDualEncoderProcessor(image_processor, tokenizer)
-
-# save the model and processor
-model.save_pretrained("clip-roberta")
-processor.save_pretrained("clip-roberta")
+model = AutoModel.from_pretrained("openai/clip-vit-base-patch32")
 ```
-
-This loads both the text and vision encoders using pre-trained weights, the projection layers are randomly
-initialized except for CLIP's vision model. If you use CLIP to initialize the vision model then the vision projection weights are also
-loaded using the pre-trained weights.
+We apply the code directly in the script because at present we have not achieved the process of testing different structure of CLIP. If you want to change model, you can adjust it in the script or make is become a argument.
 
 ### Train the model
-before run the run_clip.py. Confirm you have a data folder contains several datasets. A clip-roberta folder to contain the parameters of the pre trained CLIP. A empty clip-roberta-finetuned model to save tuned model. 
-
-This bunch of arguments are just used to test if we can run the run_clip.py successfully. 
-
-Finally, we can run the example script to train the model (Change the first three args to your corresponding path):
+before run the run_clip.py. Confirm you have the right format of dataset and you have successfully imported model, tokenizer, and image processor. This bunch of arguments are just used to test if we can run the run_clip.py successfully. Finally, we can run the example script to train the model :
 
 ```bash
-python3 run_clip.py   --output_dir /home/xz306/Data-Climate-and-AI/src/fine_tuning/try/clip-roberta-finetuned   --model_name_or_path /home/xz306/Data-Climate-and-AI/src/fine_tuning/try/clip-roberta   --data_dir /home/xz306/transformers/data   --dataset_name ydshieh/coco_dataset_script   --dataset_config_name=2017   --image_column image_path   --caption_column caption   --remove_unused_columns=False   --do_train   --do_eval   --per_device_train_batch_size="8" --per_device_eval_batch_size="8" --learning_rate="5e-5"   --warmup_steps="0"   --weight_decay 0.1  --max_steps 1000  --overwrite_output_dir --logging_steps 1
+python3 run_clip.py   --output_dir /home/xz306/Data-Climate-and-AI/src/fine_tuning/try/clip-roberta-finetuned  --train_file /home/xz306/transformers/data/powerplanttrain.csv   --image_column image_path --caption_column caption   --remove_unused_columns=False   --do_train    --per_device_train_batch_size="8" --per_device_eval_batch_size="8" --learning_rate="5e-5"   --warmup_steps="0"   --weight_decay 0.1  --max_steps 10  --overwrite_output_dir --logging_steps 1
+```
+output_dir is where to save your tuned model. If you do everything correctly, there should be many files generated under the output dir, including the checkpoints. A folder called wandb should also be generated under your current path which contains the finetuning records and log files. If you are going to test the performance of tuned model, the procedure is same as how to import model, tokenizer, and image processor, but change the link to your own output_dir.
+
+
+We also deployed the LoRA algorithm in the script to improve the efficiency of model training. To use it, change the part of script that imports model to the code below.
+```python3
+tokenizer = AutoTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+image_processor = AutoImageProcessor.from_pretrained("openai/clip-vit-base-patch32")
+model = AutoModel.from_pretrained("openai/clip-vit-base-patch32")
+peft_config = LoraConfig(
+    r=16,
+    lora_alpha=16,
+    target_modules=["k_proj","v_proj"],
+    lora_dropout=0.1,
+    bias="none",
+)
+config = model.config
+model = get_peft_model(model, peft_config)
 ```
 
-## More arguments 
 
+
+# More arguments 
 ### Model arguments
 model_name_or_path: The name of the pretrained model or the path where the model is stored. This could be a model identifier from Hugging Face's model hub. Examples: "openai/clip-vit-base-patch32", "./my_pretrained_clip_model"
 
